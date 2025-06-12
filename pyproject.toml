@@ -10,11 +10,12 @@ dependencies = [
   "torch",
   "transformers",
   "datasets",
-  "evaluate",      # rouge metric
+  "evaluate", # rouge metric
   "mypy",
   "python-dotenv",
   "rouge_score",
   "joblib",
   "seaborn",
   "openai",
+  "transformer-lens>=2.15.4",
 ]

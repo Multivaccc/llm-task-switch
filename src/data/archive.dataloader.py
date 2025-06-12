@@ -19,7 +19,7 @@ class PromptLoader:
         """Load all the datasets into memory"""
 
         dataloader_dict: dict = {
-            "gigaword": GigawordDataLoader,
+            # "gigaword": GigawordDataLoader,
             "dailymail": DailymailDataLoader,
             # "wikicat": WikicatDataLoader,
             "rotten_tomatoes": RottenTomatoesDataLoader,
