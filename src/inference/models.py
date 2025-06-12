@@ -1,4 +1,5 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed  # type: ignore
+from transformer_lens import HookedTransformer, HookedTransformerConfig
 import torch
 import openai
 from src.tools.tools import get_default_device, DTYPE
@@ -33,23 +34,21 @@ class OpenAIModel:
             msgs_batches.append(msgs)
 
         responses = [
-            self.client.ChatCompletion.create(
+            self.client.chat.completions.create(
                 model=OPENAI_MODELS[self.model_name], messages=msgs, temperature=0
             )
             for msgs in msgs_batches
         ]
-        return [r.choices[0].message.content for r in responses]
+        return [r.choices[0].message.content for r in responses] # type: ignore
 
 
 class HFModel:
     def __init__(self, device, model_name="mistral-7b"):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            HF_MODEL_URLS[model_name], padding_side="left"
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_URLS[model_name], padding_side="left")
         # print(self.tokenizer.padding_side)
         self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(HF_MODEL_URLS[model_name])
-        self.model.to(device, dtype=DTYPE)
+        self.model = HookedTransformer.from_pretrained(HF_MODEL_URLS[model_name], device=device)
+        self.model.to(device_or_dtype=DTYPE)
         self.device = device
 
         self.max_new_tokens = 512  # Twice the 99.9th percentile of train set summaries
@@ -77,11 +76,9 @@ class HFModel:
                 do_sample=True,
                 temperature=1.0,
                 max_new_tokens=max_new_tokens,
-                pad_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
-            output_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[
-                0
-            ]
+            output_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
 
             # 2. Generate assistant response
             msg = {"role": "user", "content": output_text}
