@@ -1,5 +1,5 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed  # type: ignore
-from transformer_lens import HookedTransformer, HookedTransformerConfig
+from transformers import AutoTokenizer, set_seed, LlamaTokenizer  # type: ignore
+from transformer_lens import HookedTransformer
 import torch
 import openai
 from src.tools.tools import get_default_device, DTYPE
@@ -44,10 +44,10 @@ class OpenAIModel:
 
 class HFModel:
     def __init__(self, device, model_name="mistral-7b"):
-        self.tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_URLS[model_name], padding_side="left")
+        self.tokenizer: LlamaTokenizer = AutoTokenizer.from_pretrained(HF_MODEL_URLS[model_name], padding_side="left")
         # print(self.tokenizer.padding_side)
         self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = HookedTransformer.from_pretrained(HF_MODEL_URLS[model_name], device=device)
+        self.model: HookedTransformer = HookedTransformer.from_pretrained(HF_MODEL_URLS[model_name], device=device)
         self.model.to(device_or_dtype=DTYPE)
         self.device = device
 
@@ -56,7 +56,7 @@ class HFModel:
 
         self.generation_kwargs = dict(
             do_sample=False,
-            pad_token_id=self.tokenizer.eos_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
             max_new_tokens=self.max_new_tokens,
             temperature=0,
             top_p=1,
@@ -76,21 +76,16 @@ class HFModel:
                 do_sample=True,
                 temperature=1.0,
                 max_new_tokens=max_new_tokens,
-                eos_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id, # type: ignore
             )
             output_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
 
             # 2. Generate assistant response
             msg = {"role": "user", "content": output_text}
-            encodeds = self.tokenizer.apply_chat_template([msg], return_tensors="pt")
+            encodeds: torch.Tensor = self.tokenizer.apply_chat_template([msg], return_tensors="pt") # type: ignore
             inputs = encodeds.to(self.device)
-            output = self.model.generate(
-                inputs,
-                **self.generation_kwargs | {"max_new_tokens": max_new_tokens},
-            )
-            system_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[
-                0
-            ]
+            output = self.model.generate(inputs, **self.generation_kwargs) # type: ignore
+            system_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
             system_text = system_text.split("[/INST]")[-1].strip()
 
             prompts.append(
@@ -118,24 +113,22 @@ class HFModel:
         for turn in prompts:
             msgs.append({"role": turn["role"], "content": turn["content"]})
 
-        encodeds = self.tokenizer.apply_chat_template(msgs, return_tensors="pt")
+        encodeds: torch.Tensor = self.tokenizer.apply_chat_template(msgs, return_tensors="pt") # type: ignore
         # return [encodeds.shape[-1]] # Debug token length
 
-        inputs = encodeds.to(self.device)
+        inputs = encodeds.to(self.device) # type: ignore
 
         output = self.model.generate(
             inputs,
             do_sample=False,
-            pad_token_id=self.tokenizer.eos_token_id,
+            eos_token_id=self.tokenizer.eos_token_id, # type: ignore
             max_new_tokens=self.max_new_tokens,
             temperature=0,
             top_p=1,
         )
 
         # Batch decode tokens
-        output_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[
-            0
-        ]  # NOTE batch decode strips the text by default
+        output_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0] # type: ignore
 
         # remove input text
         output_text = output_text.split("[/INST]")[-1]
@@ -155,12 +148,12 @@ class HFModel:
         """
 
         msgs = [{"role": turn["role"], "content": turn["content"]} for turn in history]
-        encodeds = self.tokenizer.apply_chat_template(msgs, return_tensors="pt")
+        encodeds: torch.Tensor = self.tokenizer.apply_chat_template(msgs, return_tensors="pt") # type: ignore
 
         # Tokenize with the response
         # breakpoint()
         msgs.append({"role": "assistant", "content": response})
-        response_tokens = self.tokenizer.apply_chat_template(msgs, return_tensors="pt")
+        response_tokens: torch.Tensor = self.tokenizer.apply_chat_template(msgs, return_tensors="pt") # type: ignore
         # Extract the response tokens not in the history
         response_tokens = response_tokens[:, encodeds.shape[-1] :]
         # response_tokens = self.tokenizer.encode(response, return_tensors="pt")
@@ -173,7 +166,7 @@ class HFModel:
             inputs = torch.cat([encodeds, response_tokens[:, :idx]], dim=1)
             inputs = inputs.to(self.device)
             # Extract logits
-            logits = self.model.forward(input_ids=inputs)["logits"]
+            logits = self.model.forward(input=inputs, return_type="logits") # type: ignore
             probs = torch.softmax(logits[0, -1, :].cpu(), dim=-1)
             # Find the probability of the current response token
             response_probabilities.append(
